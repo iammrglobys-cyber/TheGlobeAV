@@ -1,0 +1,1048 @@
+using System.Collections.Concurrent;
+using System.IO;
+using System.Windows;
+using System.Windows.Controls;
+using System.Windows.Threading;
+
+using Microsoft.Win32;
+
+using TheGlobeAV.Models;
+using TheGlobeAV.Services;
+
+namespace TheGlobeAV;
+
+public partial class MainWindow : Window
+{
+    private readonly FileDiscoveryService _discovery = new();
+
+    private readonly FileInspectionService _inspection = new();
+    private readonly DiscordWebhookService _discord = new();
+    private InspectionRecord? _lastInspectionRecord;
+
+    private readonly DefenderScanService _defender = new();
+    private readonly ScanInventoryWriter _inventory = new();
+
+    private List<DefenderScanResult> _lastFullDriveResults = new();
+
+    private FullScanSessionSummary? _lastFullScanSummary;
+
+    private volatile string _latestDefenderActivity = "";
+
+
+    private CancellationTokenSource? _defenderCancellation;
+
+
+    private readonly ConcurrentQueue<ScannedFile> _pendingFiles = new();
+
+    private readonly Dictionary<string, TreeViewItem> _folderNodes =
+        new(StringComparer.OrdinalIgnoreCase);
+
+    private readonly DispatcherTimer _explorerTimer;
+
+    private CancellationTokenSource? _scanCancellation;
+
+    private ScannedFile? _selectedFile;
+
+    private volatile string _latestDirectory = "";
+
+    private volatile string _latestActivity =
+        "GlobeAV initialized.";
+
+    private ScanProgress? _latestProgress;
+
+    private int _filesQueuedForDisplay;
+
+    private int _visibleTreeEntries;
+
+    private bool _discoveryTaskActive;
+
+    private const int MaximumVisibleTreeEntries = 8000;
+
+    private const int MaximumQueuedFileRecords = 5000;
+
+    private const int MaximumFilesPerUpdate = 350;
+
+    public MainWindow()
+    {
+        InitializeComponent();
+
+        _discovery.FileDiscovered += OnFileDiscovered;
+        _discovery.FileDiscovered += _inventory.RecordFile;
+        _discovery.Activity += _inventory.RecordActivity;
+
+
+        _discovery.ProgressChanged += OnProgressChanged;
+
+        _discovery.Activity += OnActivity;
+
+        _explorerTimer = new DispatcherTimer
+        {
+            Interval = TimeSpan.FromMilliseconds(100)
+        };
+
+        _explorerTimer.Tick += ExplorerTimer_Tick;
+
+        _explorerTimer.Start();
+
+        ActivityText.Text =
+            "GlobeAV initialized. Waiting for file discovery.";
+
+        ThreatsText.Text = "—";
+
+        ExplorerStatusText.Text =
+            "No discovery session has started.";
+
+        InspectionFileText.Text =
+            "Select a discovered file to inspect it.";
+
+        InspectionHashText.Text =
+            "SHA-256: Not calculated";
+
+        InspectionTypeText.Text =
+            "Format: Not inspected";
+    }
+
+    // ==================================
+    // DISCOVERY EVENTS
+    // ==================================
+
+    private void OnFileDiscovered(ScannedFile file)
+    {
+        int index = Interlocked.Increment(
+            ref _filesQueuedForDisplay);
+
+        if (index <= MaximumQueuedFileRecords)
+        {
+            _pendingFiles.Enqueue(file);
+        }
+    }
+
+    private void OnProgressChanged(ScanProgress progress)
+    {
+        _latestProgress = progress;
+
+        if (!string.IsNullOrWhiteSpace(progress.CurrentDirectory))
+        {
+            _latestDirectory = progress.CurrentDirectory;
+        }
+    }
+
+    private void OnActivity(string activity)
+    {
+        _latestActivity = activity;
+    }
+
+    // ==================================
+    // LIVE INTERFACE UPDATES
+    // ==================================
+
+    private void ExplorerTimer_Tick(
+        object? sender,
+        EventArgs e)
+    {
+        var progress = _latestProgress;
+
+        if (progress != null)
+        {
+            FilesScannedText.Text =
+                progress.FilesDiscovered.ToString("N0");
+
+            string state = progress.IsComplete
+                ? (_discovery.IsCancelled
+                    ? "CANCELLED"
+                    : "DISCOVERY DONE")
+                : "DISCOVERING";
+
+            ScanStatusText.Text = state;
+
+            ScanProgress.IsIndeterminate =
+                !progress.IsComplete;
+
+            ScanProgress.Value =
+                progress.IsComplete ? 100 : 0;
+
+            string current = _latestDirectory;
+
+            if (string.IsNullOrWhiteSpace(current))
+                current = "Finishing discovery...";
+
+            ProgressText.Text =
+                $"Folders visited: {progress.FoldersVisited:N0} | " +
+                $"Skipped: {progress.FilesSkipped:N0} | " +
+                $"Errors: {progress.Errors:N0}";
+
+            ExplorerStatusText.Text =
+                $"Current location: {current}";
+
+            if (!progress.IsComplete)
+            {
+                EnsureFolderNode(current);
+            }
+        }
+
+        ActivityText.Text =
+            _latestActivity + Environment.NewLine +
+            _latestDefenderActivity;
+
+        int processed = 0;
+
+        while (processed < MaximumFilesPerUpdate &&
+               _pendingFiles.TryDequeue(out var file))
+        {
+            AddFileNode(file);
+            processed++;
+        }
+
+        if (Volatile.Read(ref _filesQueuedForDisplay) >
+            MaximumQueuedFileRecords)
+        {
+            ExplorerLimitText.Text =
+                "Live tree display limit reached. " +
+                "Discovery continues, but not every file is displayed. " +
+                "Persistent full scan history is being developed.";
+        }
+    }
+
+    // ==================================
+    // FOLDER TREE
+    // ==================================
+
+    private TreeViewItem? EnsureFolderNode(
+        string directoryPath)
+    {
+        if (string.IsNullOrWhiteSpace(directoryPath))
+            return null;
+
+        string fullPath;
+
+        try
+        {
+            fullPath = Path.GetFullPath(directoryPath);
+        }
+        catch
+        {
+            return null;
+        }
+
+        string rootPath =
+            Path.GetPathRoot(fullPath) ?? fullPath;
+
+        if (!_folderNodes.TryGetValue(rootPath, out var parent))
+        {
+            if (_visibleTreeEntries >= MaximumVisibleTreeEntries)
+                return null;
+
+            parent = new TreeViewItem
+            {
+                Header = $"💽 {rootPath}",
+                Tag = rootPath,
+                IsExpanded = true
+            };
+
+            LiveFileTree.Items.Add(parent);
+
+            _folderNodes[rootPath] = parent;
+
+            _visibleTreeEntries++;
+        }
+
+        string remainder = fullPath[rootPath.Length..].Trim(
+            Path.DirectorySeparatorChar,
+            Path.AltDirectorySeparatorChar);
+
+        string currentPath = rootPath;
+
+        var parts = remainder.Split(
+            new[]
+            {
+                Path.DirectorySeparatorChar,
+                Path.AltDirectorySeparatorChar
+            },
+            StringSplitOptions.RemoveEmptyEntries);
+
+        foreach (string part in parts)
+        {
+            string nextPath = Path.Combine(currentPath, part);
+
+            if (_folderNodes.TryGetValue(nextPath, out var existing))
+            {
+                parent = existing;
+                currentPath = nextPath;
+                continue;
+            }
+
+            if (_visibleTreeEntries >= MaximumVisibleTreeEntries)
+                return null;
+
+            var child = new TreeViewItem
+            {
+                Header = $"📁 {part}",
+                Tag = nextPath
+            };
+
+            parent.Items.Add(child);
+
+            parent.IsExpanded = true;
+
+            _folderNodes[nextPath] = child;
+
+            _visibleTreeEntries++;
+
+            parent = child;
+
+            currentPath = nextPath;
+        }
+
+        return parent;
+    }
+
+    private void AddFileNode(ScannedFile file)
+    {
+        if (_visibleTreeEntries >= MaximumVisibleTreeEntries)
+            return;
+
+        string? parentPath =
+            Path.GetDirectoryName(file.FullPath);
+
+        if (string.IsNullOrWhiteSpace(parentPath))
+            return;
+
+        var parent = EnsureFolderNode(parentPath);
+
+        if (parent == null)
+            return;
+
+        if (_visibleTreeEntries >= MaximumVisibleTreeEntries)
+            return;
+
+        var fileNode = new TreeViewItem
+        {
+            Header =
+                $"📄 {file.Name}   ·   {file.DisplaySize}",
+
+            Tag = file
+        };
+
+        parent.Items.Add(fileNode);
+
+        parent.IsExpanded = true;
+
+        _visibleTreeEntries++;
+    }
+
+    // ==================================
+    // SELECTED FILE
+    // ==================================
+
+    private void LiveFileTree_SelectedItemChanged(
+        object sender,
+        RoutedPropertyChangedEventArgs<object> e)
+    {
+        if (e.NewValue is not TreeViewItem selected)
+            return;
+
+        _selectedFile = selected.Tag as ScannedFile;
+
+        if (_selectedFile is ScannedFile file)
+        {
+            InspectionFileText.Text =
+                $"{file.Name}\n{file.FullPath}";
+
+            InspectionHashText.Text =
+                "SHA-256: Not calculated";
+
+            InspectionTypeText.Text =
+                $"Size: {file.DisplaySize} | Status: Discovered";
+
+            InspectionEventsList.Items.Clear();
+
+            ActivityText.Text =
+                $"Selected: {file.Name}\n" +
+                "This file has been discovered, not yet malware-scanned.";
+        }
+        else if (selected.Tag is string folder)
+        {
+            ActivityText.Text =
+                $"Selected folder:\n{folder}";
+        }
+    }
+
+    // ==================================
+    // INSPECT SELECTED FILE
+    // ==================================
+
+
+
+
+    private async void SendFullScanToDiscord_Click(
+        object sender,
+        RoutedEventArgs e)
+    {
+        var summary = _lastFullScanSummary;
+
+        if (summary == null)
+        {
+            MessageBox.Show(
+                "Complete a full PC scan before sending its report.",
+                "TheGlobeAV");
+            return;
+        }
+
+        SendFullScanToDiscordButton.IsEnabled = false;
+
+        try
+        {
+            ActivityText.Text =
+                "Preparing full PC scan report for Discord...";
+
+            await _discord.SendFullScanReportAsync(summary);
+
+            ActivityText.Text =
+                "Full PC scan report successfully sent to Discord.";
+
+            MessageBox.Show(
+                "Your full scan report and attachments were sent to Discord.",
+                "TheGlobeAV");
+        }
+        catch (Exception ex)
+        {
+            ActivityText.Text = "Discord report failed.";
+
+            MessageBox.Show(
+                ex.Message,
+                "Discord Upload Error",
+                MessageBoxButton.OK,
+                MessageBoxImage.Warning);
+        }
+        finally
+        {
+            SendFullScanToDiscordButton.IsEnabled =
+                _lastFullScanSummary != null;
+        }
+    }
+
+    private async void SendInspectionToDiscord_Click(
+        object sender,
+        RoutedEventArgs e)
+    {
+        if (_lastInspectionRecord == null)
+        {
+            MessageBox.Show(
+                "Inspect a file first, then send its report.",
+                "TheGlobeAV");
+            return;
+        }
+
+        SendInspectionToDiscordButton.IsEnabled = false;
+
+        try
+        {
+            ActivityText.Text = "Sending report to Discord...";
+
+            await _discord.SendInspectionReportAsync(
+                _lastInspectionRecord);
+
+            ActivityText.Text =
+                "Inspection report successfully sent to Discord.";
+
+            MessageBox.Show(
+                "The inspection report was sent successfully.",
+                "TheGlobeAV");
+        }
+        catch (Exception ex)
+        {
+            MessageBox.Show(
+                "Discord report failed: " + ex.Message,
+                "TheGlobeAV",
+                MessageBoxButton.OK,
+                MessageBoxImage.Warning);
+        }
+        finally
+        {
+            SendInspectionToDiscordButton.IsEnabled = true;
+        }
+    }
+
+    private async void RunDefenderScan_Click(
+        object sender,
+        RoutedEventArgs e)
+    {
+        if (_selectedFile == null)
+        {
+            MessageBox.Show(
+                "Select a file in the Live File Explorer first.",
+                "TheGlobeAV");
+            return;
+        }
+
+        if (_defenderCancellation != null)
+            return;
+
+        RunDefenderScanButton.IsEnabled = false;
+        DefenderResultText.Text = "Microsoft Defender scan starting...";
+        DefenderOutputText.Clear();
+
+        _defenderCancellation = new CancellationTokenSource();
+
+        try
+        {
+            string selectedPath = _selectedFile.FullPath;
+
+            DefenderResultText.Text =
+                "Scanning with Microsoft Defender. This may take a while.";
+
+            var result = await _defender.ScanFileAsync(
+                selectedPath,
+                _defenderCancellation.Token);
+
+            DefenderResultText.Text = result.Status switch
+            {
+                DefenderScanStatus.Clean =>
+                    "No detection reported by Defender (exit code 0). " +
+                    "This is not a guarantee that the file is safe.",
+
+                DefenderScanStatus.Unconfirmed =>
+                    "Defender returned exit code 2. This can indicate " +
+                    "a detection OR a scan error. Review the raw output; " +
+                    "GlobeAV has not confirmed a threat.",
+
+                DefenderScanStatus.Unavailable =>
+                    "Defender scanning is unavailable. No verdict was produced.",
+
+                DefenderScanStatus.Cancelled =>
+                    "Defender scan was cancelled.",
+
+                _ =>
+                    "Defender scan failed or did not produce a confirmed verdict."
+            };
+
+            DefenderOutputText.Text =
+                $"Status: {result.Status}\n" +
+                $"Exit code: {result.ExitCode?.ToString() ?? "Unavailable"}\n" +
+                $"Duration: {result.DurationMilliseconds} ms\n" +
+                $"Remediation disabled: {result.RemediationDisabled}\n" +
+                $"Error: {result.ErrorMessage ?? "None"}\n\n" +
+                "----- DEFENDER OUTPUT -----\n" +
+                result.Output;
+
+            ActivityText.Text =
+                $"Defender scan finished for {_selectedFile.Name}: " +
+                $"{result.Status}.";
+        }
+        catch (Exception ex)
+        {
+            DefenderResultText.Text = "Defender integration error.";
+            DefenderOutputText.Text = ex.ToString();
+        }
+        finally
+        {
+            _defenderCancellation?.Dispose();
+            _defenderCancellation = null;
+            RunDefenderScanButton.IsEnabled = true;
+        }
+    }
+
+    private async void InspectSelectedFile_Click(
+        object sender,
+        RoutedEventArgs e)
+    {
+        if (_selectedFile == null)
+        {
+            MessageBox.Show(
+                "Select a file in the live explorer first.",
+                "TheGlobeAV",
+                MessageBoxButton.OK,
+                MessageBoxImage.Information);
+
+            return;
+        }
+
+        InspectSelectedButton.IsEnabled = false;
+
+        InspectionEventsList.Items.Clear();
+
+        InspectionHashText.Text =
+            "SHA-256: Calculating...";
+
+        InspectionTypeText.Text =
+            "Inspecting actual file bytes and metadata...";
+
+        try
+        {
+            ActivityText.Text =
+                $"Inspecting {_selectedFile.Name}...";
+
+            var record = await _inspection.InspectAsync(
+                _selectedFile);
+            _lastInspectionRecord = record;
+
+            InspectionFileText.Text =
+                $"{record.FileName}\n{record.FilePath}";
+
+            InspectionHashText.Text =
+                string.IsNullOrWhiteSpace(record.Sha256)
+                    ? "SHA-256: Not available"
+                    : $"SHA-256: {record.Sha256}";
+
+            string archiveDetails = record.IsArchive
+                ? $"Archive entries: {record.ArchiveEntryCount:N0}"
+                : "Not a detected archive";
+
+            InspectionTypeText.Text =
+                $"Format: {record.DetectedFormat}\n" +
+                $"Size: {record.FileLength:N0} bytes\n" +
+                $"{archiveDetails}\n" +
+                $"Inspection time: {record.DurationMilliseconds:N0} ms\n" +
+                $"Record: {record.LocalRecordPath ?? record.StorageError ?? "Not saved"}";
+
+            foreach (var item in record.Events)
+            {
+                string line =
+                    $"[{item.OffsetMilliseconds,5} ms] " +
+                    $"[{item.Category}] {item.Message}";
+
+                InspectionEventsList.Items.Add(line);
+            }
+
+            foreach (string entry in record.ArchiveEntries)
+            {
+                InspectionEventsList.Items.Add(
+                    $"[ARCHIVE CONTENT] {entry}");
+            }
+
+            if (record.ArchiveEntryListTruncated)
+            {
+                InspectionEventsList.Items.Add(
+                    "Additional archive entries were not saved in this record.");
+            }
+
+            if (!string.IsNullOrWhiteSpace(record.ErrorMessage))
+            {
+                InspectionEventsList.Items.Add(
+                    "ERROR: " + record.ErrorMessage);
+            }
+
+            if (record.StorageError != null)
+            {
+                InspectionEventsList.Items.Add(
+                    "RECORD STORAGE ERROR: " + record.StorageError);
+            }
+
+            if (InspectionEventsList.Items.Count > 0)
+            {
+                InspectionEventsList.ScrollIntoView(
+                    InspectionEventsList.Items[
+                        InspectionEventsList.Items.Count - 1]);
+            }
+
+            _latestActivity =
+                $"Inspection finished for {record.FileName}. " +
+                "No malware verdict has been made by this inspection engine.";
+        }
+        catch (Exception ex)
+        {
+            _latestActivity =
+                "Inspection failed: " + ex.Message;
+
+            MessageBox.Show(
+                ex.Message,
+                "GlobeAV Inspection Error",
+                MessageBoxButton.OK,
+                MessageBoxImage.Warning);
+        }
+        finally
+        {
+            InspectSelectedButton.IsEnabled = true;
+        }
+    }
+
+    // ==================================
+    // RESET
+    // ==================================
+
+    private void ResetExplorer()
+    {
+        while (_pendingFiles.TryDequeue(out _))
+        {
+        }
+
+        LiveFileTree.Items.Clear();
+
+        _folderNodes.Clear();
+
+        _visibleTreeEntries = 0;
+
+        _selectedFile = null;
+
+        Interlocked.Exchange(
+            ref _filesQueuedForDisplay, 0);
+
+        _latestDirectory = "";
+
+        _latestProgress = null;
+
+        ExplorerLimitText.Text = "";
+
+        FilesScannedText.Text = "0";
+
+        ThreatsText.Text = "—";
+
+        ScanStatusText.Text = "DISCOVERY";
+
+        ScanProgress.Value = 0;
+
+        ScanProgress.IsIndeterminate = true;
+
+        InspectionFileText.Text =
+            "Select a discovered file.";
+
+        InspectionHashText.Text =
+            "SHA-256: Not calculated";
+
+        InspectionTypeText.Text =
+            "Format: Not inspected";
+
+        InspectionEventsList.Items.Clear();
+    }
+
+    // ==================================
+    // START DISCOVERY
+    // ==================================
+
+    private async Task StartDiscoveryAsync(string? folder)
+    {
+        if (_discoveryTaskActive)
+        {
+            MessageBox.Show(
+                "A discovery operation is already running.",
+                "TheGlobeAV");
+
+            return;
+        }
+
+        _discoveryTaskActive = true;
+
+        ResetExplorer();
+
+        _latestActivity = "Preparing file discovery...";
+
+        ProgressText.Text =
+            "Discovering files. Malware detection is not connected yet.";
+
+        ExplorerStatusText.Text =
+            "Starting discovery...";
+
+        _scanCancellation =
+            new CancellationTokenSource();
+
+        CancellationToken token = _scanCancellation.Token;
+
+        try
+        {
+            // Run recursive discovery on a worker thread.
+            // This prevents the WPF interface from freezing.
+
+            if (folder == null)
+            {
+                await Task.Run(
+                    () => _discovery.StartFullDiscoveryAsync(token));
+            }
+            else
+            {
+                await Task.Run(
+                    () => _discovery.StartFolderDiscoveryAsync(
+                        folder,
+                        token));
+            }
+        }
+        catch (Exception ex)
+        {
+            _latestActivity =
+                "Discovery error: " + ex.Message;
+
+            MessageBox.Show(
+                ex.Message,
+                "GlobeAV Discovery Error",
+                MessageBoxButton.OK,
+                MessageBoxImage.Warning);
+        }
+        finally
+        {
+            _scanCancellation?.Dispose();
+
+            _scanCancellation = null;
+
+            _discoveryTaskActive = false;
+
+            ExplorerTimer_Tick(this, EventArgs.Empty);
+        }
+    }
+
+    // ==================================
+    // DASHBOARD BUTTONS
+    // ==================================
+
+
+    private async void FullScan_Click(
+        object sender,
+        RoutedEventArgs e)
+    {
+        await StartFullSystemScanAsync();
+    }
+
+    private async Task StartFullSystemScanAsync()
+    {
+        if (_discoveryTaskActive)
+        {
+            MessageBox.Show(
+                "A scan is already running.",
+                "TheGlobeAV");
+            return;
+        }
+
+        _discoveryTaskActive = true;
+        ResetExplorer();
+
+        var started = DateTime.UtcNow;
+
+        _inventory.Begin();
+
+        _latestActivity =
+            "Full PC scan started. Building complete file inventory.";
+
+        _latestDefenderActivity =
+            "Preparing Microsoft Defender drive scans.";
+
+        _scanCancellation = new CancellationTokenSource();
+
+        var token = _scanCancellation.Token;
+
+        try
+        {
+            var discoveryTask = Task.Run(
+                () => _discovery.StartFullDiscoveryAsync(token));
+
+            var defenderTask = Task.Run(
+                () => _defender.ScanReadyDriveRootsAsync(
+                    message => _latestDefenderActivity = message,
+                    token));
+
+            await Task.WhenAll(discoveryTask, defenderTask);
+
+            _lastFullDriveResults = await defenderTask;
+
+            _latestActivity =
+                "Full PC scan and inventory discovery finished.";
+
+            ThreatsText.Text =
+                _lastFullDriveResults.Any(
+                    r => r.Status == DefenderScanStatus.Unconfirmed)
+                    ? "REVIEW"
+                    : "—";
+
+            DefenderResultText.Text =
+                "Drive scanning finished. Review each drive's result " +
+                "and raw output; ambiguous results are not confirmed threats.";
+
+            DefenderOutputText.Text = string.Join(
+                Environment.NewLine + Environment.NewLine,
+                _lastFullDriveResults.Select(r =>
+                    $"DRIVE: {r.FilePath}\n" +
+                    $"STATUS: {r.Status}\n" +
+                    $"EXIT CODE: {r.ExitCode}\n" +
+                    $"DURATION: {r.DurationMilliseconds} ms\n" +
+                    $"ERROR: {r.ErrorMessage ?? "None"}\n" +
+                    r.Output));
+
+        }
+        catch (OperationCanceledException)
+        {
+            _latestActivity = "Full PC scan cancelled.";
+        }
+        catch (Exception ex)
+        {
+            _latestActivity = "Full PC scan error: " + ex.Message;
+
+            MessageBox.Show(
+                ex.Message,
+                "TheGlobeAV",
+                MessageBoxButton.OK,
+                MessageBoxImage.Warning);
+        }
+        finally
+        {
+            _inventory.Complete();
+
+            var summary = new FullScanSessionSummary
+            {
+                StartedAtUtc = started,
+                FinishedAtUtc = DateTime.UtcNow,
+                FilesDiscovered = _discovery.FilesDiscovered,
+                FoldersVisited = _discovery.FoldersVisited,
+                FilesSkipped = _discovery.FilesSkipped,
+                DiscoveryErrors = _discovery.Errors,
+                InventoryCsvPath = _inventory.CsvPath ?? "",
+                ActivityLogPath = _inventory.ActivityPath ?? "",
+                DefenderResults = _lastFullDriveResults
+            };
+
+            try
+            {
+                string history = Path.Combine(
+                    Environment.GetFolderPath(
+                        Environment.SpecialFolder.LocalApplicationData),
+                    "TheGlobeAV", "FullScanHistory");
+
+                Directory.CreateDirectory(history);
+
+                string path = Path.Combine(
+                    history, $"{summary.Id:N}.json");
+
+                summary.SummaryJsonPath = path;
+
+                await File.WriteAllTextAsync(
+                    path,
+                    System.Text.Json.JsonSerializer.Serialize(
+                        summary,
+                        new System.Text.Json.JsonSerializerOptions
+                        {
+                            WriteIndented = true
+                        }));
+
+                _lastFullScanSummary = summary;
+                SendFullScanToDiscordButton.IsEnabled = true;
+
+                _latestActivity +=
+                    $"\nInventory: {summary.FilesDiscovered:N0} files. " +
+                    $"Saved: {summary.InventoryCsvPath}";
+            }
+            catch (Exception ex)
+            {
+                _latestActivity +=
+                    "\nCould not save session summary: " + ex.Message;
+            }
+
+            _scanCancellation?.Dispose();
+            _scanCancellation = null;
+
+            _discoveryTaskActive = false;
+
+            ExplorerTimer_Tick(this, EventArgs.Empty);
+        }
+    }
+
+    private async void QuickScan_Click(
+        object sender,
+        RoutedEventArgs e)
+    {
+        string profile =
+            Environment.GetFolderPath(
+                Environment.SpecialFolder.UserProfile);
+
+        string downloads =
+            Path.Combine(profile, "Downloads");
+
+        if (!Directory.Exists(downloads))
+            downloads = profile;
+
+        await StartDiscoveryAsync(downloads);
+    }
+
+    private async void CustomScan_Click(
+        object sender,
+        RoutedEventArgs e)
+    {
+        var dialog = new OpenFolderDialog
+        {
+            Title = "Choose a folder for GlobeAV discovery"
+        };
+
+        if (dialog.ShowDialog(this) == true)
+        {
+            await StartDiscoveryAsync(dialog.FolderName);
+        }
+    }
+
+    private void CancelDiscovery_Click(
+        object sender,
+        RoutedEventArgs e)
+    {
+        if (_discovery.IsRunning)
+        {
+            _scanCancellation?.Cancel();
+
+            _latestActivity =
+                "Cancellation requested...";
+        }
+    }
+
+    // ==================================
+    // NAVIGATION
+    // ==================================
+
+    private void SetPage(string page)
+    {
+        Title = "TheGlobeAV - " + page;
+
+        _latestActivity =
+            page + " selected.";
+    }
+
+    private void Dashboard_Click(
+        object sender,
+        RoutedEventArgs e)
+        => SetPage("Dashboard");
+
+    private void Scanner_Click(
+        object sender,
+        RoutedEventArgs e)
+        => SetPage("Live Scanner");
+
+    private void Explorer_Click(
+        object sender,
+        RoutedEventArgs e)
+        => SetPage("File Explorer");
+
+    private void Replay_Click(
+        object sender, RoutedEventArgs e)
+    {
+        var replay = new ScanReplayWindow { Owner = this };
+        replay.ShowDialog();
+    }
+
+    private void Threats_Click(
+        object sender,
+        RoutedEventArgs e)
+        => SetPage("Detected Threats");
+
+    private void History_Click(
+        object sender, RoutedEventArgs e)
+    {
+        var replay = new ScanReplayWindow { Owner = this };
+        replay.ShowDialog();
+    }
+
+    private void Settings_Click(
+        object sender,
+        RoutedEventArgs e)
+    {
+        var window = new DiscordSettingsWindow
+        {
+            Owner = this
+        };
+
+        window.ShowDialog();
+    }
+
+    private void Search_Click(
+        object sender, RoutedEventArgs e)
+    {
+        string query = FileSearchBox.Text.Trim();
+
+        if (query == "Search files...")
+            query = "";
+
+        var replay = new ScanReplayWindow(query) { Owner = this };
+        replay.ShowDialog();
+    }
+}

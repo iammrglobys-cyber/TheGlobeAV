@@ -1,0 +1,81 @@
+using System.Windows;
+using System.Windows.Controls;
+
+namespace TheGlobeAV;
+
+public partial class MainWindow : Window
+{
+    public MainWindow()
+    {
+        InitializeComponent();
+
+        ActivityText.Text =
+            "GlobeAV interface initialized successfully. " +
+            "The real scanning engine has not been connected yet.";
+    }
+
+    private void SetPage(string page)
+    {
+        Title = "TheGlobeAV - " + page;
+
+        ActivityText.Text =
+            page + " selected. Feature integration is pending.";
+    }
+
+    private void Dashboard_Click(object sender, RoutedEventArgs e)
+        => SetPage("Dashboard");
+
+    private void Scanner_Click(object sender, RoutedEventArgs e)
+        => SetPage("Live Scanner");
+
+    private void Explorer_Click(object sender, RoutedEventArgs e)
+        => SetPage("File Explorer");
+
+    private void Replay_Click(object sender, RoutedEventArgs e)
+        => SetPage("Scan Replay");
+
+    private void Threats_Click(object sender, RoutedEventArgs e)
+        => SetPage("Detected Threats");
+
+    private void History_Click(object sender, RoutedEventArgs e)
+        => SetPage("Scan History");
+
+    private void Settings_Click(object sender, RoutedEventArgs e)
+        => SetPage("Settings");
+
+    private void FullScan_Click(object sender, RoutedEventArgs e)
+    {
+        MessageBox.Show(
+            "The full-system scanning engine is being developed.",
+            "TheGlobeAV",
+            MessageBoxButton.OK,
+            MessageBoxImage.Information);
+    }
+
+    private void QuickScan_Click(object sender, RoutedEventArgs e)
+    {
+        MessageBox.Show(
+            "The quick scanning engine is being developed.",
+            "TheGlobeAV",
+            MessageBoxButton.OK,
+            MessageBoxImage.Information);
+    }
+
+    private void CustomScan_Click(object sender, RoutedEventArgs e)
+    {
+        MessageBox.Show(
+            "Custom folder scanning will be added in a later build.",
+            "TheGlobeAV",
+            MessageBoxButton.OK,
+            MessageBoxImage.Information);
+    }
+
+    private void Search_Click(object sender, RoutedEventArgs e)
+    {
+        MessageBox.Show(
+            "Scan history search will be connected when the database is ready.",
+            "TheGlobeAV",
+            MessageBoxButton.OK,
+            MessageBoxImage.Information);
+    }
+}

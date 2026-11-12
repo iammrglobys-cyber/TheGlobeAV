@@ -1,0 +1,445 @@
+<Window x:Class="TheGlobeAV.MainWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="TheGlobeAV"
+        Height="850"
+        Width="1450"
+        MinHeight="700"
+        MinWidth="1100"
+        WindowStartupLocation="CenterScreen"
+        Background="#090D18"
+        Foreground="#EAF0FF">
+
+    <Window.Resources>
+
+        <SolidColorBrush x:Key="Panel" Color="#111827"/>
+        <SolidColorBrush x:Key="PanelLight" Color="#182337"/>
+        <SolidColorBrush x:Key="Accent" Color="#3688FF"/>
+        <SolidColorBrush x:Key="Muted" Color="#8493AC"/>
+
+        <Style x:Key="NavButton" TargetType="Button">
+            <Setter Property="Background" Value="Transparent"/>
+            <Setter Property="Foreground" Value="#A9B7CE"/>
+            <Setter Property="BorderThickness" Value="0"/>
+            <Setter Property="Padding" Value="18,13"/>
+            <Setter Property="HorizontalContentAlignment" Value="Left"/>
+            <Setter Property="FontSize" Value="14"/>
+            <Setter Property="Cursor" Value="Hand"/>
+            <Setter Property="Margin" Value="0,3"/>
+        </Style>
+
+        <Style x:Key="ActionButton" TargetType="Button">
+            <Setter Property="Background" Value="#2878ED"/>
+            <Setter Property="Foreground" Value="White"/>
+            <Setter Property="BorderThickness" Value="0"/>
+            <Setter Property="Padding" Value="22,13"/>
+            <Setter Property="FontSize" Value="14"/>
+            <Setter Property="FontWeight" Value="SemiBold"/>
+            <Setter Property="Cursor" Value="Hand"/>
+            <Setter Property="Margin" Value="0,0,10,0"/>
+        </Style>
+
+        <Style x:Key="Card" TargetType="Border">
+            <Setter Property="Background" Value="#111827"/>
+            <Setter Property="CornerRadius" Value="12"/>
+            <Setter Property="Padding" Value="22"/>
+            <Setter Property="Margin" Value="0,0,14,14"/>
+        </Style>
+
+    </Window.Resources>
+
+    <Grid>
+        <Grid.ColumnDefinitions>
+            <ColumnDefinition Width="245"/>
+            <ColumnDefinition Width="*"/>
+        </Grid.ColumnDefinitions>
+
+        <!-- SIDEBAR -->
+
+        <Border Grid.Column="0"
+                Background="#0D1422"
+                BorderBrush="#202B40"
+                BorderThickness="0,0,1,0">
+
+            <DockPanel Margin="20">
+
+                <StackPanel DockPanel.Dock="Top">
+
+                    <StackPanel Orientation="Horizontal"
+                                Margin="0,8,0,35">
+
+                        <Border Width="38"
+                                Height="38"
+                                Background="#1D4D91"
+                                CornerRadius="10">
+
+                            <TextBlock Text="G"
+                                       FontSize="23"
+                                       FontWeight="Bold"
+                                       HorizontalAlignment="Center"
+                                       VerticalAlignment="Center"/>
+
+                        </Border>
+
+                        <StackPanel Margin="11,0,0,0"
+                                    VerticalAlignment="Center">
+
+                            <TextBlock Text="TheGlobeAV"
+                                       FontSize="19"
+                                       FontWeight="Bold"/>
+
+                            <TextBlock Text="SECURITY CENTER"
+                                       FontSize="9"
+                                       Foreground="#7186A8"/>
+
+                        </StackPanel>
+
+                    </StackPanel>
+
+                    <TextBlock Text="MAIN"
+                               Foreground="#64748B"
+                               FontSize="10"
+                               FontWeight="Bold"
+                               Margin="10,0,0,10"/>
+
+                    <Button Style="{StaticResource NavButton}"
+                            Content="◈   Dashboard"
+                            Click="Dashboard_Click"/>
+
+                    <Button Style="{StaticResource NavButton}"
+                            Content="⌕   Live Scanner"
+                            Click="Scanner_Click"/>
+
+                    <Button Style="{StaticResource NavButton}"
+                            Content="▤   File Explorer"
+                            Click="Explorer_Click"/>
+
+                    <Button Style="{StaticResource NavButton}"
+                            Content="◷   Scan Replay"
+                            Click="Replay_Click"/>
+
+                    <TextBlock Text="SECURITY"
+                               Foreground="#64748B"
+                               FontSize="10"
+                               FontWeight="Bold"
+                               Margin="10,30,0,10"/>
+
+                    <Button Style="{StaticResource NavButton}"
+                            Content="⚑   Detected Threats"
+                            Click="Threats_Click"/>
+
+                    <Button Style="{StaticResource NavButton}"
+                            Content="◉   Scan History"
+                            Click="History_Click"/>
+
+                    <Button Style="{StaticResource NavButton}"
+                            Content="⚙   Settings"
+                            Click="Settings_Click"/>
+
+                </StackPanel>
+
+                <Border DockPanel.Dock="Bottom"
+                        Background="#17243A"
+                        CornerRadius="10"
+                        Padding="13">
+
+                    <StackPanel>
+                        <TextBlock Text="GLOBEAV ENGINE"
+                                   FontSize="11"
+                                   FontWeight="Bold"/>
+
+                        <TextBlock Text="Interface initialized"
+                                   Foreground="#7F91AE"
+                                   FontSize="11"
+                                   Margin="0,5,0,0"/>
+
+                        <TextBlock Text="Detection engine pending setup"
+                                   Foreground="#F0B95A"
+                                   FontSize="10"
+                                   Margin="0,5,0,0"/>
+                    </StackPanel>
+
+                </Border>
+
+            </DockPanel>
+
+        </Border>
+
+        <!-- MAIN CONTENT -->
+
+        <ScrollViewer Grid.Column="1"
+                      VerticalScrollBarVisibility="Auto">
+
+            <StackPanel Margin="35">
+
+                <DockPanel Margin="0,0,0,30">
+
+                    <StackPanel>
+                        <TextBlock Text="SECURITY OVERVIEW"
+                                   Foreground="#8293AF"
+                                   FontSize="11"
+                                   FontWeight="Bold"/>
+
+                        <TextBlock Text="Dashboard"
+                                   FontSize="30"
+                                   FontWeight="Bold"
+                                   Margin="0,5,0,0"/>
+
+                        <TextBlock Text="Monitor your computer's security."
+                                   Foreground="#8493AC"
+                                   FontSize="13"
+                                   Margin="0,5,0,0"/>
+                    </StackPanel>
+
+                    <Border DockPanel.Dock="Right"
+                            Background="#17243A"
+                            CornerRadius="20"
+                            Padding="14,9"
+                            VerticalAlignment="Center">
+
+                        <TextBlock Text="●  ENGINE SETUP REQUIRED"
+                                   Foreground="#F0B95A"
+                                   FontSize="10"
+                                   FontWeight="Bold"/>
+
+                    </Border>
+
+                </DockPanel>
+
+                <!-- SECURITY STATUS -->
+
+                <Border Background="#111D30"
+                        BorderBrush="#1E416E"
+                        BorderThickness="1"
+                        CornerRadius="14"
+                        Padding="25"
+                        Margin="0,0,0,20">
+
+                    <Grid>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="Auto"/>
+                        </Grid.ColumnDefinitions>
+
+                        <StackPanel VerticalAlignment="Center">
+
+                            <TextBlock Text="YOUR DEVICE"
+                                       Foreground="#8DA6CC"
+                                       FontSize="11"
+                                       FontWeight="Bold"/>
+
+                            <TextBlock Text="Ready for protection"
+                                       FontSize="25"
+                                       FontWeight="Bold"
+                                       Margin="0,10,0,5"/>
+
+                            <TextBlock Text="No scan has been performed yet."
+                                       Foreground="#9AABC4"
+                                       FontSize="13"/>
+
+                        </StackPanel>
+
+                        <Border Grid.Column="1"
+                                Width="90"
+                                Height="90"
+                                CornerRadius="45"
+                                Background="#18345A">
+
+                            <TextBlock Text="G"
+                                       FontSize="45"
+                                       Foreground="#64A8FF"
+                                       FontWeight="Bold"
+                                       HorizontalAlignment="Center"
+                                       VerticalAlignment="Center"/>
+
+                        </Border>
+
+                    </Grid>
+
+                </Border>
+
+                <!-- STATISTICS -->
+
+                <UniformGrid Columns="3" Margin="0,0,0,8">
+
+                    <Border Style="{StaticResource Card}">
+                        <StackPanel>
+                            <TextBlock Text="FILES SCANNED"
+                                       Foreground="#8C9CB6"
+                                       FontSize="11"/>
+                            <TextBlock Text="0"
+                                       x:Name="FilesScannedText"
+                                       FontSize="32"
+                                       FontWeight="Bold"
+                                       Margin="0,9"/>
+                            <TextBlock Text="No scan data yet"
+                                       Foreground="#7186A8"
+                                       FontSize="11"/>
+                        </StackPanel>
+                    </Border>
+
+                    <Border Style="{StaticResource Card}">
+                        <StackPanel>
+                            <TextBlock Text="THREATS DETECTED"
+                                       Foreground="#8C9CB6"
+                                       FontSize="11"/>
+                            <TextBlock Text="0"
+                                       x:Name="ThreatsText"
+                                       Foreground="#FF7777"
+                                       FontSize="32"
+                                       FontWeight="Bold"
+                                       Margin="0,9"/>
+                            <TextBlock Text="No scan data yet"
+                                       Foreground="#7186A8"
+                                       FontSize="11"/>
+                        </StackPanel>
+                    </Border>
+
+                    <Border Style="{StaticResource Card}">
+                        <StackPanel>
+                            <TextBlock Text="SCAN STATUS"
+                                       Foreground="#8C9CB6"
+                                       FontSize="11"/>
+                            <TextBlock Text="IDLE"
+                                       x:Name="ScanStatusText"
+                                       Foreground="#59B9FF"
+                                       FontSize="32"
+                                       FontWeight="Bold"
+                                       Margin="0,9"/>
+                            <TextBlock Text="Waiting for a scan"
+                                       Foreground="#7186A8"
+                                       FontSize="11"/>
+                        </StackPanel>
+                    </Border>
+
+                </UniformGrid>
+
+                <!-- SCAN CONTROLS -->
+
+                <Border Style="{StaticResource Card}"
+                        Margin="0,0,0,18">
+
+                    <StackPanel>
+
+                        <TextBlock Text="SYSTEM SCANNER"
+                                   FontSize="17"
+                                   FontWeight="Bold"/>
+
+                        <TextBlock Text="Choose how you want to inspect your computer."
+                                   Foreground="#8493AC"
+                                   Margin="0,7,0,20"/>
+
+                        <WrapPanel>
+
+                            <Button Content="FULL SYSTEM SCAN"
+                                    Style="{StaticResource ActionButton}"
+                                    Click="FullScan_Click"/>
+
+                            <Button Content="QUICK SCAN"
+                                    Background="#26364F"
+                                    Foreground="White"
+                                    BorderThickness="0"
+                                    Padding="22,13"
+                                    Margin="0,0,10,0"
+                                    Click="QuickScan_Click"/>
+
+                            <Button Content="CUSTOM SCAN"
+                                    Background="#26364F"
+                                    Foreground="White"
+                                    BorderThickness="0"
+                                    Padding="22,13"
+                                    Click="CustomScan_Click"/>
+
+                        </WrapPanel>
+
+                        <ProgressBar x:Name="ScanProgress"
+                                     Height="7"
+                                     Minimum="0"
+                                     Maximum="100"
+                                     Value="0"
+                                     Background="#26364F"
+                                     Foreground="#3688FF"
+                                     Margin="0,22,0,8"/>
+
+                        <TextBlock x:Name="ProgressText"
+                                   Text="Waiting for scanner initialization..."
+                                   Foreground="#8493AC"
+                                   FontSize="11"/>
+
+                    </StackPanel>
+
+                </Border>
+
+                <!-- LIVE ACTIVITY -->
+
+                <Border Style="{StaticResource Card}"
+                        Margin="0,0,0,18">
+
+                    <StackPanel>
+
+                        <DockPanel>
+                            <TextBlock Text="LIVE ACTIVITY"
+                                       FontSize="16"
+                                       FontWeight="Bold"/>
+
+                            <TextBlock Text="SCAN EVENTS"
+                                       Foreground="#7186A8"
+                                       FontSize="10"
+                                       DockPanel.Dock="Right"/>
+                        </DockPanel>
+
+                        <TextBlock x:Name="ActivityText"
+                                   Text="GlobeAV initialized. Waiting for scanner engine."
+                                   Foreground="#A8B9D2"
+                                   TextWrapping="Wrap"
+                                   Margin="0,18,0,0"/>
+
+                    </StackPanel>
+
+                </Border>
+
+                <!-- SEARCH -->
+
+                <Border Style="{StaticResource Card}"
+                        Margin="0,0,0,18">
+
+                    <StackPanel>
+
+                        <TextBlock Text="SCAN ARCHIVE"
+                                   FontSize="16"
+                                   FontWeight="Bold"/>
+
+                        <TextBlock Text="Find previously scanned files and replay their inspections."
+                                   Foreground="#8493AC"
+                                   Margin="0,7,0,15"/>
+
+                        <TextBox x:Name="FileSearchBox"
+                                 Height="40"
+                                 FontSize="14"
+                                 Background="#1A263A"
+                                 Foreground="White"
+                                 BorderBrush="#344968"
+                                 Padding="10"
+                                 VerticalContentAlignment="Center"
+                                 Text="Search files..."/>
+
+                        <Button Content="SEARCH SCAN HISTORY"
+                                Background="#26364F"
+                                Foreground="White"
+                                BorderThickness="0"
+                                Padding="15,11"
+                                HorizontalAlignment="Left"
+                                Margin="0,12,0,0"
+                                Click="Search_Click"/>
+
+                    </StackPanel>
+
+                </Border>
+
+            </StackPanel>
+
+        </ScrollViewer>
+
+    </Grid>
+
+</Window>

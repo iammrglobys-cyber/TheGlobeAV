@@ -1,0 +1,61 @@
+name: Build TheGlobeAV Windows
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build-windows:
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install .NET 10
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+
+      - name: Restore
+        run: dotnet restore src/TheGlobeAV/TheGlobeAV.csproj
+
+      - name: Publish Windows executable
+        run: >
+          dotnet publish src/TheGlobeAV/TheGlobeAV.csproj
+          --configuration Release
+          --runtime win-x64
+          --self-contained true
+          -p:PublishSingleFile=true
+          -p:IncludeNativeLibrariesForSelfExtract=true
+          -p:EnableCompressionInSingleFile=true
+          --output artifacts/publish
+
+      - name: Verify executable
+        shell: pwsh
+        run: |
+          $exe = "artifacts/publish/TheGlobeAV.exe"
+          if (!(Test-Path $exe)) {
+            throw "TheGlobeAV.exe was not created."
+          }
+          Get-Item $exe | Format-List Name, Length
+
+      - name: Package release
+        shell: pwsh
+        run: |
+          Compress-Archive `
+            -Path "artifacts/publish/*" `
+            -DestinationPath "TheGlobeAV-Windows-x64.zip" `
+            -Force
+
+      - name: Upload build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: TheGlobeAV-Windows-x64
+          path: TheGlobeAV-Windows-x64.zip
+          retention-days: 14
