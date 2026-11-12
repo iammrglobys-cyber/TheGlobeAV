@@ -321,6 +321,56 @@ public sealed class DiscordWebhookService : IDisposable
         string gif = new ReplayGifExporter()
             .CreateFullScanReplay(summary.ActivityLogPath);
 
+        var payload = new
+        {
+            content = "TheGlobeAV full PC scan report",
+            embeds = new[]
+            {
+                new
+                {
+                    title = "Full PC Scan Completed",
+                    color = 0x3688FF,
+                    description =
+                        "Complete inventory and Defender results attached. " +
+                        "The GIF shows recorded GlobeAV activity.",
+                    fields = new object[]
+                    {
+                        new {
+                            name = "Files discovered",
+                            value = summary.FilesDiscovered.ToString("N0"),
+                            inline = true
+                        },
+                        new {
+                            name = "Folders visited",
+                            value = summary.FoldersVisited.ToString("N0"),
+                            inline = true
+                        },
+                        new {
+                            name = "Files skipped",
+                            value = summary.FilesSkipped.ToString("N0"),
+                            inline = true
+                        },
+                        new {
+                            name = "Defender results",
+                            value = string.Join("\\n",
+                                summary.DefenderResults.Select(r =>
+                                    $"{Path.GetFileName(r.FilePath)}: {r.Status}")),
+                            inline = false
+                        }
+                    },
+                    image = new {
+                        url = $"attachment://{Path.GetFileName(gif)}"
+                    },
+                    footer = new {
+                        text = "GlobeAV security report"
+                    },
+                    timestamp = summary.FinishedAtUtc.ToString("O")
+                }
+            }
+        };
+
+
+
 
         string bundlePath = Path.Combine(
             folder, $"{summary.Id:N}-report-bundle.zip");
